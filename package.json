@@ -2,10 +2,14 @@
   "name": "csi345",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:portal": "node src/portal/server.js",
+    "dev:portal": "node src/portal/server.js --watch",
+    "start:sarms": "node src/sarms/server.js",
+    "dev:sarms": "node src/sarms/server.js --watch"
   },
   "repository": {
     "type": "git",
@@ -20,6 +24,15 @@
   },
   "homepage": "https://github.com/TheoMKgosi/csi345#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "axios": "^1.12.2",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "express-session": "^1.18.0",
+    "keycloak-connect": "^25.0.0",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.6",
+    "oracledb": "^6.9.0",
+    "pdfkit": "^0.17.2"
   }
 }

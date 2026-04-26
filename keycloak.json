@@ -1,0 +1,10 @@
+{
+  "realm": "club",
+  "auth-server-url": "http://localhost:8080/",
+  "ssl-required": "external",
+  "resource": "university portal",
+  "bearer-only": true,
+  "verify-token-audience": false,
+  "public-client": true,
+  "confidential-port": 0
+}

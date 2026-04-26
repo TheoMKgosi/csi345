@@ -1,0 +1,975 @@
+openapi: 3.0.3
+info:
+  title: CSI345 Portal + SARMS APIs
+  version: 1.0.0
+  description: |
+    OpenAPI spec for the currently implemented endpoints in this repository.
+
+    IAM is provided by Keycloak (external):
+    - The Portal creates users in Keycloak during `POST /register/validate`.
+    - Email verification, password reset, and OTP (TOTP) 2FA are handled by Keycloak.
+    - Clients obtain JWTs directly from Keycloak (OIDC). This Portal implementation does not enforce bearer auth on its endpoints.
+
+servers:
+  - url: http://localhost:3000
+    description: Portal API
+  - url: http://localhost:3001
+    description: SARMS API
+
+tags:
+  - name: Membership
+  - name: Payments
+  - name: Booking
+  - name: Equipment
+  - name: Notifications
+  - name: Reporting
+  - name: SARMS
+
+paths:
+  /register/validate:
+    post:
+      tags: [Membership]
+      summary: Validate against SARMS and initiate registration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterValidateRequest'
+      responses:
+        '200':
+          description: Validation successful and Keycloak actions email triggered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing/invalid fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: SARMS validation failed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  reason:
+                    type: string
+                    description: Why SARMS rejected the details.
+                    enum: [mismatch, not_found]
+                  mismatches:
+                    type: array
+                    nullable: true
+                    items:
+                      type: string
+                      enum: [name, dob]
+                required: [error]
+        '409':
+          description: Student already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: SARMS unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /members/{studentId}/status:
+    get:
+      tags: [Membership]
+      summary: Get member status and latest membership dates.
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Status returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberStatusResponse'
+        '404':
+          description: Student not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [Membership]
+      summary: Update member status.
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Student not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /members/renew:
+    post:
+      tags: [Membership]
+      summary: Initiate renewal by email (sends a renewal link).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewInitRequest'
+      responses:
+        '200':
+          description: Always ok.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+
+  /members/renew/confirm:
+    post:
+      tags: [Membership]
+      summary: Confirm renewal using token and transactionRef.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewConfirmRequest'
+      responses:
+        '200':
+          description: Renewal completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Invalid token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Token used or transactionRef already used.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: Token expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /cards/generate/{studentId}:
+    get:
+      tags: [Membership]
+      summary: Generate a printable membership card.
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: PDF membership card.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Student or membership not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /payments/checkout-session:
+    post:
+      tags: [Payments]
+      summary: Create Stripe Checkout Session for annual membership fee.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCheckoutSessionRequest'
+      responses:
+        '201':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCheckoutSessionResponse'
+        '400':
+          description: Missing fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Student not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '501':
+          description: Stripe not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Stripe error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /payments/webhooks/stripe:
+    post:
+      tags: [Payments]
+      summary: Stripe webhook receiver.
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Invalid signature/payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '501':
+          description: Webhook not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /bookings:
+    get:
+      tags: [Booking]
+      summary: List active bookings.
+      responses:
+        '200':
+          description: Bookings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Booking'
+                required: [bookings]
+    post:
+      tags: [Booking]
+      summary: Create a booking (prevents overlaps).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Invalid fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Overlap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /bookings/{bookingId}:
+    delete:
+      tags: [Booking]
+      summary: Cancel a booking.
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /equipment:
+    get:
+      tags: [Equipment]
+      summary: List all equipment.
+      responses:
+        '200':
+          description: Equipment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  equipment:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Equipment'
+                required: [equipment]
+    post:
+      tags: [Equipment]
+      summary: Add new equipment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEquipmentRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Invalid fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /equipment/{equipmentId}:
+    patch:
+      tags: [Equipment]
+      summary: Update equipment.
+      parameters:
+        - name: equipmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEquipmentRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  equipmentId: { type: integer }
+                required: [equipmentId]
+        '400':
+          description: No fields to update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Equipment]
+      summary: Remove equipment (fails if future bookings exist).
+      parameters:
+        - name: equipmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Active future bookings exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications/send:
+    post:
+      tags: [Notifications]
+      summary: Send a notification (email supported; future sms/whatsapp placeholders).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendNotificationRequest'
+      responses:
+        '201':
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications/status/{messageId}:
+    get:
+      tags: [Notifications]
+      summary: Check delivery/queue status.
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notificationId: { type: integer }
+                  status: { type: string }
+                required: [notificationId, status]
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /reports/membership-stats:
+    get:
+      tags: [Reporting]
+      summary: Get membership status summary.
+      parameters:
+        - name: startDate
+          in: query
+          schema: { type: string, format: date }
+        - name: endDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Stats.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipStats'
+
+  /reports/equipment-usage:
+    get:
+      tags: [Reporting]
+      summary: Equipment booking frequency.
+      responses:
+        '200':
+          description: Usage metrics.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  equipmentUsage:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        equipmentId: { type: integer }
+                        name: { type: string }
+                        bookingCount: { type: integer }
+                      required: [equipmentId, name, bookingCount]
+                required: [equipmentUsage]
+
+  /reports/revenue:
+    get:
+      tags: [Reporting]
+      summary: Total revenue from payments.
+      responses:
+        '200':
+          description: Revenue.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: number }
+                required: [total]
+
+  # -----------------
+  # SARMS API (actual)
+  # -----------------
+  /health:
+    get:
+      tags: [SARMS]
+      summary: Health check (SARMS service).
+      servers:
+        - url: http://localhost:3001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /sarms/students:
+    get:
+      tags: [SARMS]
+      summary: List SARMS students (filterable).
+      servers:
+        - url: http://localhost:3001
+      parameters:
+        - name: studentId
+          in: query
+          schema: { type: integer }
+        - name: email
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Students.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  students:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SarmsStudent'
+                required: [students]
+    post:
+      tags: [SARMS]
+      summary: Create SARMS student.
+      servers:
+        - url: http://localhost:3001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSarmsStudentRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  studentId: { type: integer }
+                required: [studentId]
+
+  /sarms/students/{studentId}:
+    get:
+      tags: [SARMS]
+      summary: Get SARMS student.
+      servers:
+        - url: http://localhost:3001
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Student.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SarmsStudent'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [SARMS]
+      summary: Update SARMS student.
+      servers:
+        - url: http://localhost:3001
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSarmsStudentRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  studentId: { type: integer }
+                required: [studentId]
+        '400':
+          description: No fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [SARMS]
+      summary: Delete SARMS student.
+      servers:
+        - url: http://localhost:3001
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sarms/verify:
+    post:
+      tags: [SARMS]
+      summary: Verify studentID + name + DOB.
+      servers:
+        - url: http://localhost:3001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SarmsVerifyRequest'
+      responses:
+        '200':
+          description: Match.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          description: Missing fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Mismatch.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+  securitySchemes:
+    keycloakBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Ok:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+
+    Health:
+      type: object
+      properties:
+        ok: { type: boolean }
+        service: { type: string }
+      required: [ok, service]
+
+    RegisterValidateRequest:
+      type: object
+      required: [studentId, name, dob, email]
+      properties:
+        studentId: { type: integer }
+        name: { type: string }
+        dob: { type: string, format: date }
+        email: { type: string, format: email }
+        phoneNumber: { type: string }
+
+    UpdateStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+
+    MemberStatusResponse:
+      type: object
+      required: [studentId, status]
+      properties:
+        studentId: { type: integer }
+        status: { type: string }
+        membership:
+          type: object
+          nullable: true
+          properties:
+            issueDate: { type: string, format: date }
+            expireDate: { type: string, format: date }
+
+    RenewInitRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    RenewConfirmRequest:
+      type: object
+      required: [token, transactionRef]
+      properties:
+        token: { type: string }
+        transactionRef: { type: string }
+        amount: { type: number, default: 100 }
+
+    CreateCheckoutSessionRequest:
+      type: object
+      required: [studentId]
+      properties:
+        studentId: { type: integer }
+        successUrl: { type: string, format: uri }
+        cancelUrl: { type: string, format: uri }
+
+    CreateCheckoutSessionResponse:
+      type: object
+      required: [sessionId, url]
+      properties:
+        sessionId: { type: string }
+        url: { type: string, format: uri }
+
+    CreateBookingRequest:
+      type: object
+      required: [equipmentId, studentId, startTime, endTime]
+      properties:
+        equipmentId: { type: integer }
+        studentId: { type: integer }
+        startTime: { type: string, format: date-time }
+        endTime: { type: string, format: date-time }
+
+    Booking:
+      type: object
+      properties:
+        bookingId: { type: integer }
+        startTime: { type: string }
+        endTime: { type: string }
+        studentId: { type: integer }
+        equipmentId: { type: integer }
+        remindedAt: { type: string, nullable: true }
+      required: [bookingId, startTime, endTime, studentId, equipmentId]
+
+    CreateEquipmentRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        administratorId: { type: integer }
+        status: { type: string }
+
+    UpdateEquipmentRequest:
+      type: object
+      properties:
+        name: { type: string }
+        administratorId: { type: integer }
+        status: { type: string }
+
+    Equipment:
+      type: object
+      properties:
+        equipmentId: { type: integer }
+        name: { type: string }
+        administratorId: { type: integer, nullable: true }
+        status: { type: string }
+      required: [equipmentId, name, status]
+
+    SendNotificationRequest:
+      type: object
+      required: [recipientId, message]
+      properties:
+        recipientId:
+          type: string
+          description: StudentID or email.
+        type:
+          type: string
+          description: Logical notification type.
+        subject:
+          type: string
+          description: Email subject (email channel).
+        message:
+          type: string
+          description: Notification body text.
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [email, sms, whatsapp]
+          default: [email]
+
+    MembershipStats:
+      type: object
+      required: [active, blocked, total]
+      properties:
+        active: { type: integer }
+        blocked: { type: integer }
+        total: { type: integer }
+        startDate: { type: string, format: date, nullable: true }
+        endDate: { type: string, format: date, nullable: true }
+        membershipsIssued: { type: integer, nullable: true }
+
+    SarmsVerifyRequest:
+      type: object
+      required: [studentId, name, dob]
+      properties:
+        studentId: { type: integer }
+        name: { type: string }
+        dob: { type: string, format: date }
+
+    SarmsStudent:
+      type: object
+      required: [studentId, name, dob]
+      properties:
+        studentId: { type: integer }
+        name: { type: string }
+        dob: { type: string, format: date }
+        email: { type: string, nullable: true }
+        phoneNumber: { type: string, nullable: true }
+        status: { type: string, nullable: true }
+
+    CreateSarmsStudentRequest:
+      type: object
+      required: [studentId, name, dob]
+      properties:
+        studentId: { type: integer }
+        name: { type: string }
+        dob: { type: string, format: date }
+        email: { type: string }
+        phoneNumber: { type: string }
+        status: { type: string }
+
+    UpdateSarmsStudentRequest:
+      type: object
+      properties:
+        name: { type: string }
+        dob: { type: string, format: date }
+        email: { type: string }
+        phoneNumber: { type: string }
+        status: { type: string }
